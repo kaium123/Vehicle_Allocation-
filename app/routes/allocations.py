@@ -14,9 +14,11 @@ router = APIRouter()
 from fastapi import FastAPI
 import redis
 
-redis_host = os.getenv("REDIS_HOST", "localhost")
-print(redis_host)
-cache = redis.Redis(host=redis_host, port=6379, db=0)
+from aiocache import Cache
+
+# Set up cache instance
+cache = Cache.from_url("redis://localhost:6379")
+
 
 
 @router.post("/", response_model=Allocation, summary="Create an allocation", tags=["Allocations"])
@@ -52,6 +54,17 @@ async def update_allocation(allocation_id: str, update_data: Allocation):
     - **allocation_id**: ID of the allocation to update
     """
     allocation = await db.allocations.find_one({"_id": ObjectId(allocation_id)})
+    print(allocation)
+
+    
+    existing_allocation = await db.allocations.find_one({
+        "vehicle_id": update_data.vehicle_id,
+        "allocation_date": update_data.allocation_date
+    })
+    
+    if existing_allocation:
+        raise HTTPException(status_code=400, detail="Vehicle already allocated for that day")
+    
 
     if not allocation:
         raise HTTPException(status_code=404, detail="Allocation not found")
@@ -64,6 +77,7 @@ async def update_allocation(allocation_id: str, update_data: Allocation):
         {"$set": update_data.dict(exclude_unset=True)}
     )
 
+    print("update_result.modified_count -- ",update_result.modified_count)
     if update_result.modified_count == 0:
         raise HTTPException(status_code=400, detail="Failed to update allocation")
 
