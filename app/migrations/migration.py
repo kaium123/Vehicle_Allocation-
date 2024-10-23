@@ -13,7 +13,8 @@ async def init_db():
     print(f"Connecting to MongoDB at {mongo_host}:{mongo_port}...")
 
     # Construct the MongoDB connection string
-    mongo_uri = "mongodb://localhost:27017"
+    mongo_uri = os.getenv("MONGO_URI", "mongodb://localhost:27017")
+
 
     try:
         # Initialize the MongoDB client

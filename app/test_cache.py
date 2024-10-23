@@ -1,29 +1,28 @@
 import os
-from fastapi import FastAPI
-import redis
+from aiocache import Cache
+import asyncio
 
-app = FastAPI()
+# Get cache URL from environment variable
+CACHE_URL = os.getenv("CACHE_URL", "redis://localhost:6379")
+cache = Cache.from_url(CACHE_URL)
 
-# Initialize Redis connection
-# Make sure to use the correct host. If you're running Redis in Docker, you can use 'redis' as the host.
-redis_host = os.getenv("REDIS_HOST", "localhost")
-r = redis.Redis(host=redis_host, port=6379, db=0)
+async def read_item():
+    try:
+        # Example of storing data in Redis
+        await cache.set("item_1", "value 1")  # Await the async method
+        cached_value = await cache.get("item_1")  # Await the async method
+        
+        # If cached_value is None, it means the key doesn't exist
+        if cached_value is not None:
+            return {"cached_value": cached_value}
+        else:
+            return {"cached_value": "No data found"}
+    finally:
+        # Close the cache connection if necessary
+        await cache.close()  # Ensure the cache connection is closed
 
-def read_root():
-    return {"message": "Welcome to FastAPI with Docker and Redis"}
-
-def read_item():
-    # Example of storing data in Redis
-    r.set(f"item_1", "value 1")
-    cached_value = r.get("item_1")
-    
-    print(cached_value)
-    
-    # If cached_value is None, it means the key doesn't exist
-    if cached_value is not None:
-        cached_value = cached_value.decode("utf-8")  # Decode bytes to string
-    else:
-        cached_value = "No data found"
-
-
-read_item()
+# Main entry point
+if __name__ == "__main__":
+    # Use asyncio to run the async function and print the result
+    result = asyncio.run(read_item())
+    print(result)

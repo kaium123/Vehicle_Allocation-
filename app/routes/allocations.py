@@ -16,8 +16,10 @@ import redis
 
 from aiocache import Cache
 
-# Set up cache instance
-cache = Cache.from_url("redis://localhost:6379")
+# Get cache URL from environment variable
+CACHE_URL = os.getenv("CACHE_URL", "redis://localhost:6379")
+cache = Cache.from_url(CACHE_URL)
+
 
 
 
