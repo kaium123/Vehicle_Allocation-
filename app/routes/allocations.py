@@ -1,30 +1,56 @@
-from fastapi import APIRouter, HTTPException
-from bson import ObjectId
+import os
+from fastapi import APIRouter, HTTPException, Query
 from typing import List, Optional
 import datetime
-
+from aiocache import Cache
+from aiocache.decorators import cached
 from app.models import Allocation
 from app.database import db
+from bson import ObjectId
 
+from aiocache import Cache
 router = APIRouter()
 
-@router.post("/", response_model=Allocation)
+from fastapi import FastAPI
+import redis
+
+redis_host = os.getenv("REDIS_HOST", "localhost")
+print(redis_host)
+cache = redis.Redis(host=redis_host, port=6379, db=0)
+
+
+@router.post("/", response_model=Allocation, summary="Create an allocation", tags=["Allocations"])
 async def create_allocation(allocation: Allocation):
+    """
+    Create a new vehicle allocation.
+    
+    - **vehicle_id**: ID of the vehicle to be allocated
+    - **employee_id**: ID of the employee
+    - **allocation_date**: Date for the allocation
+    """
     existing_allocation = await db.allocations.find_one({
         "vehicle_id": allocation.vehicle_id,
         "allocation_date": allocation.allocation_date
     })
-    print("data -- ",existing_allocation)
-
+    
     if existing_allocation:
         raise HTTPException(status_code=400, detail="Vehicle already allocated for that day")
 
     result = await db.allocations.insert_one(allocation.dict())
-    allocation.id = result.inserted_id
+    allocation.id = str(result.inserted_id)
+    
+    # Clear cache for allocations to refresh data
+    await cache.delete("allocations")
+    
     return allocation
 
-@router.put("/{allocation_id}", response_model=Allocation)
+@router.put("/{allocation_id}", response_model=Allocation, summary="Update an allocation", tags=["Allocations"])
 async def update_allocation(allocation_id: str, update_data: Allocation):
+    """
+    Update an existing vehicle allocation.
+    
+    - **allocation_id**: ID of the allocation to update
+    """
     allocation = await db.allocations.find_one({"_id": ObjectId(allocation_id)})
 
     if not allocation:
@@ -41,10 +67,18 @@ async def update_allocation(allocation_id: str, update_data: Allocation):
     if update_result.modified_count == 0:
         raise HTTPException(status_code=400, detail="Failed to update allocation")
 
+    # Clear cache for allocations to refresh data
+    await cache.delete("allocations")
+    
     return {**allocation, **update_data.dict()}
 
-@router.delete("/{allocation_id}")
+@router.delete("/{allocation_id}", summary="Delete an allocation", tags=["Allocations"])
 async def delete_allocation(allocation_id: str):
+    """
+    Delete an allocation by its ID.
+    
+    - **allocation_id**: ID of the allocation to delete
+    """
     allocation = await db.allocations.find_one({"_id": ObjectId(allocation_id)})
 
     if not allocation:
@@ -54,11 +88,28 @@ async def delete_allocation(allocation_id: str):
         raise HTTPException(status_code=400, detail="Cannot delete past allocations")
 
     await db.allocations.delete_one({"_id": ObjectId(allocation_id)})
+
+    # Clear cache for allocations to refresh data
+    await cache.delete("allocations")
+    
     return {"detail": "Allocation deleted"}
 
-@router.get("/", response_model=List[Allocation])
-async def get_allocations(employee_id: Optional[str] = None, vehicle_id: Optional[str] = None,
-                           start_date: Optional[str] = None, end_date: Optional[str] = None):
+@router.get("/", response_model=List[Allocation], summary="Get allocations", tags=["Allocations"])
+@cached(ttl=60, key="allocations")  # Cache the result for 60 seconds
+async def get_allocations(
+    employee_id: Optional[str] = Query(None, description="ID of the employee"),
+    vehicle_id: Optional[str] = Query(None, description="ID of the vehicle"),
+    start_date: Optional[datetime.date] = Query(None, description="Start date for filtering allocations"),
+    end_date: Optional[datetime.date] = Query(None, description="End date for filtering allocations")
+):
+    """
+    Retrieve a list of vehicle allocations, optionally filtered by employee ID, vehicle ID, or allocation date range.
+    
+    - **employee_id**: Filter by employee ID
+    - **vehicle_id**: Filter by vehicle ID
+    - **start_date**: Start of allocation date range
+    - **end_date**: End of allocation date range
+    """
     query = {}
 
     if employee_id:

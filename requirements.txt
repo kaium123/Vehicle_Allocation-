@@ -5,3 +5,4 @@ pydantic
 beanie
 pymongo
 python-dotenv
+aiocache

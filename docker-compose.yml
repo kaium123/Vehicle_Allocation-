@@ -5,7 +5,6 @@ services:
     build: .
     ports:
       - "8000:8000"
-      - "8001:8001"
     environment:
       MONGODB_URI: mongodb://mongodb:27017
     depends_on:
@@ -24,9 +23,21 @@ services:
       - mongo_data:/data/db
     networks:
       - app-network
+    
+  cache:
+    image: redis:6.2-alpine
+    restart: always
+    ports:
+      - '6379:6379'
+    command: redis-server --save 20 1 --loglevel warning
+    volumes:
+      - cache:/data
+    networks:
+      - app-network
 
 volumes:
   mongo_data:
+  cache:
 
 networks:
   app-network:
