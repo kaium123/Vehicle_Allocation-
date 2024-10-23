@@ -6,3 +6,6 @@ beanie
 pymongo
 python-dotenv
 aiocache
+redis
+aioredis
+
