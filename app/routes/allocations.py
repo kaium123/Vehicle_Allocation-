@@ -43,7 +43,7 @@ async def create_allocation(allocation: Allocation):
     result = await db.allocations.insert_one(allocation.dict())
     allocation.id = str(result.inserted_id)
     
-    await cache.add(allocation.id,allocation)
+    await cache.add(allocation.id,allocation.dict())
     
     return allocation
 
@@ -55,7 +55,12 @@ async def update_allocation(allocation_id: str, update_data: Allocation):
     - **allocation_id**: ID of the allocation to update
     """
     
-    allocation = await db.allocations.find_one({"_id": ObjectId(allocation_id)})
+    allocation = await cache.get(allocation_id)
+    
+    print(allocation)
+    
+    if allocation is None:
+        allocation = await db.allocations.find_one({"_id": ObjectId(allocation_id)})
     
     existing_allocation = await db.allocations.find_one({
         "vehicle_id": update_data.vehicle_id,
@@ -86,6 +91,7 @@ async def update_allocation(allocation_id: str, update_data: Allocation):
     await cache.add(allocation_id,allocation)
 
     print(allocation["vehicle_id"], "  ",allocation["allocation_date"])
+    allocation["_id"]=allocation_id
     await free_vehicle(allocation["vehicle_id"],allocation["allocation_date"])
     
     return {**allocation, **update_data.dict()}
@@ -151,26 +157,45 @@ async def free_vehicle(vehicle_id: str, allocation_date: str):
     - **allocation_date**: Date of the allocation to delete (formatted as 'YYYY-MM-DD')
     """
     
-    print(vehicle_id, "  ",allocation_date)
-    # Convert allocation_date from string to a date object
-    allocation_date_obj = datetime.datetime.strptime(allocation_date, "%Y-%m-%d").date()
+    print(vehicle_id, "  ", allocation_date)
+    # Convert allocation_date from string to a datetime.datetime object at midnight
+    allocation_date_obj = datetime.datetime.strptime(allocation_date, "%Y-%m-%d")
 
     # Find the allocation using vehicle_id and allocation_date
-    allocation = await db.allocations.find_one({
-        "vehicle_id": ObjectId(vehicle_id),
-        "allocation_date": allocation_date_obj
-    })
+    allocations = get_allocations_by_date(allocation_date=allocation_date,vehicle_id=vehicle_id)
 
-    if not allocation:
+    if not allocations:
         raise HTTPException(status_code=404, detail="Allocation not found")
-
-    if allocation["allocation_date"] < datetime.date.today():
-        raise HTTPException(status_code=400, detail="Cannot delete past allocations")
 
     # Delete the allocation
     await db.allocations.delete_one({
-        "vehicle_id": ObjectId(vehicle_id),
-        "allocation_date": allocation_date_obj
+        "vehicle_id": vehicle_id,
+        "allocation_date": allocation_date
     })
     
     return {"detail": "Allocation deleted"}
+
+@router.get("/date", response_model=List[Allocation], summary="Get allocations by date and vehicle ID", tags=["Allocations"])
+async def get_allocations_by_date(allocation_date: str, vehicle_id: Optional[str] = None):
+    """
+    Retrieve allocations for a specific date, optionally filtered by vehicle ID.
+    
+    - **allocation_date**: Date for which allocations are to be retrieved (formatted as 'YYYY-MM-DD')
+    - **vehicle_id**: Optional vehicle ID to filter allocations
+    """
+    # Create the query filter
+    query = {"allocation_date": allocation_date}
+    
+    # Add vehicle_id to the query if provided
+    if vehicle_id:
+        query["vehicle_id"] = vehicle_id
+
+    # Fetch allocations from the database
+    allocations = await db.allocations.find(query).to_list(length=100)  # Adjust the length as needed
+    
+    if not allocations:
+        raise HTTPException(status_code=404, detail="No allocations found for the given criteria")
+    
+    return allocations
+
+
