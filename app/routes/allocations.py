@@ -20,9 +20,6 @@ from aiocache import Cache
 CACHE_URL = os.getenv("CACHE_URL", "redis://localhost:6379")
 cache = Cache.from_url(CACHE_URL)
 
-
-
-
 @router.post("/", response_model=Allocation, summary="Create an allocation", tags=["Allocations"])
 async def create_allocation(allocation: Allocation):
     """
@@ -87,13 +84,13 @@ async def update_allocation(allocation_id: str, update_data: Allocation):
         raise HTTPException(status_code=400, detail="Failed to update allocation")
 
     # Clear cache for allocations to refresh data
-    await cache.delete(allocation_id)
-    await cache.add(allocation_id,allocation)
+    
 
     print(allocation["vehicle_id"], "  ",allocation["allocation_date"])
     allocation["_id"]=allocation_id
     await free_vehicle(allocation["vehicle_id"],allocation["allocation_date"])
-    
+    await cache.delete(allocation_id)
+    await cache.add(allocation_id,update_data.dict())
     return {**allocation, **update_data.dict()}
 
 @router.delete("/{allocation_id}", summary="Delete an allocation", tags=["Allocations"])
@@ -162,11 +159,14 @@ async def free_vehicle(vehicle_id: str, allocation_date: str):
     allocation_date_obj = datetime.datetime.strptime(allocation_date, "%Y-%m-%d")
 
     # Find the allocation using vehicle_id and allocation_date
-    allocations = get_allocations_by_date(allocation_date=allocation_date,vehicle_id=vehicle_id)
+    allocations = await get_and_delete_allocations_by_date(allocation_date=allocation_date,vehicle_id=vehicle_id)
 
-    if not allocations:
-        raise HTTPException(status_code=404, detail="Allocation not found")
-
+    print(allocations)
+        
+    for allocation in allocations:
+        await cache.delete(str(allocation["_id"]))
+        await db.allocations.delete_one({"_id": ObjectId(allocation["_id"])})
+        
     # Delete the allocation
     await db.allocations.delete_one({
         "vehicle_id": vehicle_id,
@@ -176,7 +176,7 @@ async def free_vehicle(vehicle_id: str, allocation_date: str):
     return {"detail": "Allocation deleted"}
 
 @router.get("/date", response_model=List[Allocation], summary="Get allocations by date and vehicle ID", tags=["Allocations"])
-async def get_allocations_by_date(allocation_date: str, vehicle_id: Optional[str] = None):
+async def get_and_delete_allocations_by_date(allocation_date: str, vehicle_id: Optional[str] = None):
     """
     Retrieve allocations for a specific date, optionally filtered by vehicle ID.
     
@@ -184,6 +184,7 @@ async def get_allocations_by_date(allocation_date: str, vehicle_id: Optional[str
     - **vehicle_id**: Optional vehicle ID to filter allocations
     """
     # Create the query filter
+    print(allocation_date, " ",vehicle_id)
     query = {"allocation_date": allocation_date}
     
     # Add vehicle_id to the query if provided
@@ -193,8 +194,27 @@ async def get_allocations_by_date(allocation_date: str, vehicle_id: Optional[str
     # Fetch allocations from the database
     allocations = await db.allocations.find(query).to_list(length=100)  # Adjust the length as needed
     
+    return allocations
+
+@router.get("/id", response_model=List[Allocation], summary="Get allocations by ID", tags=["Allocations"])
+async def get_allocations_by_id(id: str):
+    """
+    Retrieve allocations by ID.
+
+    - **id**: The ID of the allocation to retrieve.
+    """
+    # Create the query filter
+    query = {"_id": ObjectId(id)}  # Convert the string ID to ObjectId
+    
+    # Fetch allocations from the database
+    allocations = await db.allocations.find(query).to_list(length=100)  # Adjust the length as needed
+    
     if not allocations:
         raise HTTPException(status_code=404, detail="No allocations found for the given criteria")
+    
+    # Delete cache entries for the allocations found
+    for allocation in allocations:
+        await cache.delete(str(allocation["_id"]))  # Ensure to convert ObjectId to string for cache deletion
     
     return allocations
 
