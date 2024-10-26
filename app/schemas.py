@@ -6,7 +6,7 @@ from bson import ObjectId
 # Pydantic model for vehicle allocations
 class Allocation(BaseModel):
     id: Optional[str] = Field(None, alias="_id")  # ID field, mapped from MongoDB's ObjectId
-    employee_id: Optional[str]  # ID of the employee being allocated a vehicle
+    employee_id: str  # ID of the employee being allocated a vehicle
     vehicle_id: str  # ID of the allocated vehicle
     allocation_date: date  # Date of allocation
 

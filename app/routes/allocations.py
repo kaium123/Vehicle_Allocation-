@@ -43,8 +43,7 @@ async def create_allocation(allocation: Allocation):
     result = await db.allocations.insert_one(allocation.dict())
     allocation.id = str(result.inserted_id)
     
-    # Clear cache for allocations to refresh data
-    await cache.delete("allocations")
+    await cache.add(allocation.id,allocation)
     
     return allocation
 
@@ -55,9 +54,8 @@ async def update_allocation(allocation_id: str, update_data: Allocation):
     
     - **allocation_id**: ID of the allocation to update
     """
+    
     allocation = await db.allocations.find_one({"_id": ObjectId(allocation_id)})
-    print(allocation)
-
     
     existing_allocation = await db.allocations.find_one({
         "vehicle_id": update_data.vehicle_id,
@@ -84,7 +82,11 @@ async def update_allocation(allocation_id: str, update_data: Allocation):
         raise HTTPException(status_code=400, detail="Failed to update allocation")
 
     # Clear cache for allocations to refresh data
-    await cache.delete("allocations")
+    await cache.delete(allocation_id)
+    await cache.add(allocation_id,allocation)
+
+    print(allocation["vehicle_id"], "  ",allocation["allocation_date"])
+    await free_vehicle(allocation["vehicle_id"],allocation["allocation_date"])
     
     return {**allocation, **update_data.dict()}
 
@@ -140,3 +142,35 @@ async def get_allocations(
         allocations.append(Allocation(**allocation))
 
     return allocations
+
+async def free_vehicle(vehicle_id: str, allocation_date: str):
+    """
+    Delete an allocation by vehicle ID and allocation date.
+    
+    - **vehicle_id**: ID of the vehicle being freed
+    - **allocation_date**: Date of the allocation to delete (formatted as 'YYYY-MM-DD')
+    """
+    
+    print(vehicle_id, "  ",allocation_date)
+    # Convert allocation_date from string to a date object
+    allocation_date_obj = datetime.datetime.strptime(allocation_date, "%Y-%m-%d").date()
+
+    # Find the allocation using vehicle_id and allocation_date
+    allocation = await db.allocations.find_one({
+        "vehicle_id": ObjectId(vehicle_id),
+        "allocation_date": allocation_date_obj
+    })
+
+    if not allocation:
+        raise HTTPException(status_code=404, detail="Allocation not found")
+
+    if allocation["allocation_date"] < datetime.date.today():
+        raise HTTPException(status_code=400, detail="Cannot delete past allocations")
+
+    # Delete the allocation
+    await db.allocations.delete_one({
+        "vehicle_id": ObjectId(vehicle_id),
+        "allocation_date": allocation_date_obj
+    })
+    
+    return {"detail": "Allocation deleted"}

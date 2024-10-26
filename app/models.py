@@ -16,3 +16,8 @@ class Allocation(Document):
     vehicle_id: str
     allocation_date: str  # Can use datetime.date or str
     status: str  # e.g., "allocated", "available"
+    
+class UpdateAllocation(Document):
+    vehicle_id: str
+    allocation_date: str  # Can use datetime.date or str
+    status: str  # e.g., "allocated", "available"
