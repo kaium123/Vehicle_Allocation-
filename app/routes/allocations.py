@@ -89,8 +89,10 @@ async def update_allocation(allocation_id: str, update_data: Allocation):
     print(allocation["vehicle_id"], "  ",allocation["allocation_date"])
     allocation["_id"]=allocation_id
     await free_vehicle(allocation["vehicle_id"],allocation["allocation_date"])
+    
     await cache.delete(allocation_id)
     await cache.add(allocation_id,update_data.dict())
+    
     return {**allocation, **update_data.dict()}
 
 @router.delete("/{allocation_id}", summary="Delete an allocation", tags=["Allocations"])
@@ -166,12 +168,6 @@ async def free_vehicle(vehicle_id: str, allocation_date: str):
     for allocation in allocations:
         await cache.delete(str(allocation["_id"]))
         await db.allocations.delete_one({"_id": ObjectId(allocation["_id"])})
-        
-    # Delete the allocation
-    await db.allocations.delete_one({
-        "vehicle_id": vehicle_id,
-        "allocation_date": allocation_date
-    })
     
     return {"detail": "Allocation deleted"}
 
